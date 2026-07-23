@@ -258,7 +258,7 @@ tr.row-os:hover td{background:#f7f9fb}
 
 const STAGES = ["Recebido","Em Diagnóstico","Consignação","Pronto / Testado","Entregue ao Cliente","Sem Reparo"];
 const PRIORITIES = ["Baixa","Normal","Alta","Urgente"];
-const BUILD = "build v1.2.2 · 2026-07-23";
+const BUILD = "build v1.3.0 · 2026-07-23";
 
 /* ---------------- IndexedDB (dados das OS) ---------------- */
 const DB_NAME = 'wonderlab_painel', STORE = 'os';
@@ -410,8 +410,19 @@ document.getElementById('importInput').addEventListener('change', e=>{
   importFiles(files);
 });
 
+// Um backup completo do painel (gerado por "Exportar backup do painel") tem um
+// formato diferente de uma OS individual exportada do WonderLab: é um envelope
+// { app:'wonderlab-painel', orders:[...], techs:[...] }, sem "id" no nível raiz.
+// Restaura cada OS do backup como está (idbPut direto — o backup já contém os
+// campos de gestão do próprio painel) e mescla a lista de técnicos.
+async function restoreOrdersFromBackup(payload){
+  const orders = Array.isArray(payload.orders) ? payload.orders : [];
+  for(const o of orders) await idbPut(o);
+  if(Array.isArray(payload.techs)) setTechs([...new Set([...getTechs(), ...payload.techs])]);
+  return orders.length;
+}
 async function importFiles(fileList){
-  let created=0, updated=0, failed=0;
+  let created=0, updated=0, failed=0, restoredFromBackup=0;
   // Novas OS sempre entram no FINAL da coluna "Recebido": calcula a maior
   // posição já usada ali e vai incrementando para cada OS nova do lote.
   const currentAll = await idbGetAll();
@@ -423,6 +434,13 @@ async function importFiles(fileList){
     try{
       const text = await file.text();
       const raw = JSON.parse(text);
+      // Arquivo de backup do painel escolhido aqui (por engano ou não — os dois
+      // botões passam a aceitar os dois formatos): restaura em vez de tentar tratar
+      // como uma única OS, que sempre falharia com "JSON sem id de OS válido".
+      if(raw && raw.app==='wonderlab-painel' && Array.isArray(raw.orders)){
+        restoredFromBackup += await restoreOrdersFromBackup(raw);
+        continue;
+      }
       if(!raw || typeof raw!=='object' || !raw.id) throw new Error('JSON sem id de OS válido');
       const existing = await idbGet(raw.id);
       if(!existing) nextOrder += 1;
@@ -457,6 +475,7 @@ async function importFiles(fileList){
   const parts = [];
   if(created) parts.push(created+' nova(s)');
   if(updated) parts.push(updated+' atualizada(s)');
+  if(restoredFromBackup) parts.push(restoredFromBackup+' restaurada(s) do backup');
   if(failed) parts.push(failed+' com erro');
   toast('Importação: '+(parts.join(', ')||'nada importado'), failed?'warn':'ok', 4500);
 }
@@ -482,11 +501,16 @@ document.getElementById('restoreInput').addEventListener('change', async e=>{
   const file = e.target.files[0]; e.target.value=''; if(!file) return;
   try{
     const payload = JSON.parse(await file.text());
-    const orders = Array.isArray(payload.orders) ? payload.orders : [];
-    for(const o of orders) await idbPut(o);
-    if(Array.isArray(payload.techs)) setTechs([...new Set([...getTechs(), ...payload.techs])]);
-    await loadAll(); render();
-    toast(`Backup restaurado: ${orders.length} OS.`, 'ok');
+    if(payload && payload.app==='wonderlab-painel' && Array.isArray(payload.orders)){
+      const n = await restoreOrdersFromBackup(payload);
+      await loadAll(); render();
+      toast(`Backup restaurado: ${n} OS.`, 'ok');
+    }else{
+      // Não é um backup do painel — trata como OS individual do WonderLab (mesmo
+      // formato aceito por "Importar OS (JSON)"), pra este botão também não travar
+      // num arquivo válido só por ter sido escolhido no campo errado.
+      await importFiles([file]);
+    }
   }catch(err){ toast('Backup inválido: '+err.message, 'err'); }
 });
 

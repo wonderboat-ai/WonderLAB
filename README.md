@@ -94,5 +94,10 @@ centraliza num servidor). Use **"Exportar backup do painel"**
 periodicamente e guarde o JSON gerado; **"Restaurar backup"** recarrega esse
 JSON (mescla por `id`, sem apagar o que já estiver na base atual).
 
+Os dois campos de arquivo (**"Importar OS (JSON)"** e **"Restaurar
+backup"**, inclusive arrastar-e-soltar direto na página) aceitam os dois
+formatos — um backup do painel ou uma OS individual do WonderLab — e tratam
+cada um corretamente não importa por qual dos dois você escolha o arquivo.
+
 ---
 Wonder Boat · WonderHUB.AI
